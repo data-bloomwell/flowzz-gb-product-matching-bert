@@ -199,7 +199,7 @@ def lambda_handler(event, context):
     # -----------------------------
     os.environ["TRANSFORMERS_NO_TF"] = "1"
     try:
-        model = SentenceTransformer('all-MiniLM-L6-v2')
+        model = SentenceTransformer('/var/task/minilm_model')
         logger.debug("MiniLM model loaded.")  
     except Exception as e:
         logger.error(f"Model failed to load: {e}")
