@@ -1,6 +1,5 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-RUN yum install -y gcc gcc-c++ make
 
 COPY requirements.txt ./
 
