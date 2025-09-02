@@ -1,38 +1,35 @@
 # Stage 1: The Build Stage
 FROM public.ecr.aws/lambda/python:3.11 AS builder
 
-# Install system dependencies
-RUN yum update -y && yum install -y \
-    gcc libffi-devel openssl-devel make cmake \
-    libxml2-devel libxslt-devel libcurl-devel \
-    postgresql-devel mysql-devel \
-    && yum clean all
-
-# Set the working directory
+# Set the working directory.
 WORKDIR /app
 
-# Copy the requirements file and install packages
+# Copy the requirements file.
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Pre-package the MiniLM model directly into the builder container
-RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2').save_pretrained('/app/minilm_model')"
+# Install all Python dependencies. Use the --only-binary flag to force pip to
+# install pre-compiled wheels for all packages that have them.
+RUN pip3 install --no-cache-dir --only-binary :all: -r requirements.txt
+
+# Download the pre-trained model during the build.
+RUN python3 -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); model.save('models')"
 
 # ---
-# Stage 2: The Final, Lean Stage
+# Stage 2: The Final Runtime Stage
 FROM public.ecr.aws/lambda/python:3.11
 
-# Set the working directory
+# Set the working directory.
 WORKDIR /var/task
 
-# Copy only the installed Python packages from the 'builder' stage
-COPY --from=builder /usr/local/lib/python3.11/site-packages/ /var/lang/lib/python3.11/site-packages/
+# Copy the installed Python packages from the 'builder' stage.
+COPY --from=builder /var/lang/lib/python3.11/site-packages/ /var/lang/lib/python3.11/site-packages/
+COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
-# Copy the pre-packaged MiniLM model
-COPY --from=builder /app/minilm_model /var/task/minilm_model
+# Copy the downloaded model from the 'builder' stage.
+COPY --from=builder /app/models /var/task/models
 
-# Copy your application code
-COPY . .
+# Copy your application code.
+COPY app.py .
 
-# Set the entry point to your Lambda function's handler
+# Set the Lambda handler.
 CMD ["app.lambda_handler"]
