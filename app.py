@@ -136,7 +136,7 @@ def lambda_handler(event, context):
 
     country = {'CA': 'Kanada', 'DK': 'Dänemark', 'PT': 'Portugal', 'LS': 'Lesotho', 'CO': 'Kolumbien', 'DE': 'Deutschland', 'UG': 'Uganda', 'ZA': 'Südafrika', 'NL': 'Niederlande', 'ES': 'Spanien', 'UY': 'Uruguay',
         'AU': 'Australien', 'MK': 'Nordmazedonien', 'NZ': 'Neuseeland', 'GB': 'England', 'IL': 'Israel', 'CZ': 'Tschechien', 'JE': 'Jersey', 'ZW': 'Zimbabwe', 'AF': 'Afghanistan', 'GR': 'Griechenland', 'CH': 'Schweiz'}
-    gb['ORIGIN'].replace(country, inplace=True)
+    gb['ORIGIN'] = gb['ORIGIN'].replace(country)
 
     flowzz['ORIGIN'] = flowzz['ORIGIN'].replace({'kanda': 'kanada', '-': 'Deutschland'}, inplace=True)
 
@@ -199,7 +199,7 @@ def lambda_handler(event, context):
     # -----------------------------
     os.environ["TRANSFORMERS_NO_TF"] = "1"
     try:
-        model = SentenceTransformer('var/task/model')
+        model = SentenceTransformer('/var/task/model')
         logger.debug("MiniLM model loaded.")  
     except Exception as e:
         logger.error(f"Model failed to load: {e}")
