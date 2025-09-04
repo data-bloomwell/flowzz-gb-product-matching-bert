@@ -1,6 +1,6 @@
 boto3==1.34.19
-pandas==2.2.0
-pyarrow==20.0.0
-requests==2.31.0
+pandas
+torch==2.2.2
+numpy<2
+transformers==4.41.2
 sentence-transformers==2.7.0
-snowflake-connector-python[pandas]==3.12.0
