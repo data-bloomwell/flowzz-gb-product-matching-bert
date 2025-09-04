@@ -402,13 +402,105 @@ def lambda_handler(event, context):
     print('----------------------------------')
 
 
-    try:
-        success, nchunks, nrows, _ = write_pandas(cnn, flowzz_gb_matched, 'FLOWZZ_GB_BERT_MATCHES', chunk_size=15000, overwrite=False)
-        print(f"Load Status: {success}, Data Chunks {nchunks}, Data Rows {nrows}")  
-    except Exception as e:
-        logger.error("ERROR: %s", str(e))
-        sys.exit()
+    # --- Split high vs low matches ---
+    matched_df = flowzz_gb_matched[flowzz_gb_matched["MATCHING_SCORE"] >= 0.80].copy()
+    unmatched_df = flowzz_gb_matched[flowzz_gb_matched["MATCHING_SCORE"] < 0.80].copy()
 
+    # ---------------------------
+    # Step 1: Update target table
+    # ---------------------------
+    if matched_df.shape[0] > 0:
+        print("High-confidence matches to update:", matched_df.shape)
+
+        # Keep only relevant columns that exist in target
+        update_cols = ["FLOWZ_PRODUCT", "FLOWZ_STRAIN", "GB_PRODUCT_ID", "GB_PRODUCT", "GB_STRAIN", "MATCHING_SCORE"]
+        matched_updates = matched_df[update_cols].copy()
+        matched_updates.columns = matched_updates.columns.str.upper()
+
+        try:
+            # Create staging table with only needed cols
+            cursor.execute("""
+                CREATE OR REPLACE TABLE EXTERNAL_DATA_STORAGE.FLOWZZ_SCRAPPED.FLOWZZ_GB_MATCHED_PRODUCTS_SOURCE (
+                    FLOWZ_PRODUCT VARCHAR(1000),
+                    FLOWZ_STRAIN VARCHAR(1000),
+                    GB_PRODUCT_ID VARCHAR(1000),
+                    GB_PRODUCT VARCHAR(1000),
+                    GB_STRAIN VARCHAR(1000),
+                    MATCHING_SCORE FLOAT
+                );
+            """)
+
+            # Load into staging
+            success, nchunks, nrows, _ = write_pandas(
+                cnn,
+                matched_updates,
+                "FLOWZZ_GB_MATCHED_PRODUCTS_SOURCE",
+                chunk_size=15000,
+                use_logical_type=True
+            )
+            print(f" Loaded {nrows} rows into staging table.")
+
+            # Merge update into target table
+            merge_query = """
+            MERGE INTO EXTERNAL_DATA_STORAGE.FLOWZZ_SCRAPPED.FLOWZZ_GB_MATCHED_PRODUCTS AS target
+            USING EXTERNAL_DATA_STORAGE.FLOWZZ_SCRAPPED.FLOWZZ_GB_MATCHED_PRODUCTS_SOURCE AS source
+            ON target.FLOWZ_PRODUCT = source.FLOWZ_PRODUCT 
+            AND target.FLOWZ_STRAIN = source.FLOWZ_STRAIN
+            WHEN MATCHED THEN
+            UPDATE SET 
+                target.GB_PRODUCT_ID = source.GB_PRODUCT_ID,
+                target.GB_PRODUCT = source.GB_PRODUCT,
+                target.GB_STRAIN = source.GB_STRAIN,
+                target.MATCHING_SCORE = source.MATCHING_SCORE;
+            """
+            drop_query = "DROP TABLE IF EXISTS EXTERNAL_DATA_STORAGE.FLOWZZ_SCRAPPED.FLOWZZ_GB_MATCHED_PRODUCTS_SOURCE;"
+
+            # ---------------------------
+            # Step 1: MERGE
+            # ---------------------------
+            try:
+                results = cursor.execute(merge_query)
+                affected_rows = results.rowcount
+                print(f"Merge is done successfully on {affected_rows} rows.")
+            except Exception as e:
+                logger.error("ERROR during MERGE: %s", str(e))
+                print("Program exiting because of MERGE error.", sys.exit())
+
+            # ---------------------------
+            # Step 2: DROP staging
+            # ---------------------------
+            try:
+                cursor.execute(drop_query)
+                print("Temporary staging table is dropped.")
+            except Exception as e:
+                logger.error("ERROR dropping staging table: %s", str(e))
+                print("Program exiting because of DROP error.", sys.exit())
+
+        except Exception as e:
+            logger.error("ERROR during target update: %s", str(e))
+            sys.exit("Stopping due to update error.")
+
+    # ---------------------------
+    # Step 2:  low matches
+    # ---------------------------
+    if unmatched_df.shape[0] > 0:
+        unmatched_df.columns = unmatched_df.columns.str.upper()
+        print("Low-confidence matches to store:", unmatched_df.shape)
+
+        try:
+            # Append into FLOWZZ_GB_BERT_MATCHES
+            success, nchunks, nrows, _ = write_pandas(
+                cnn, 
+                unmatched_df, 
+                "FLOWZZ_GB_BERT_MATCHES", 
+                chunk_size=15000, 
+                overwrite=False
+            )
+            print(f" Inserted {nrows} low-confidence matches into BERT table.")
+
+        except Exception as e:
+            logger.error("ERROR inserting into BERT table: %s", str(e))
+            sys.exit("Stopping due to insert error.")
     
     cursor.close()
     cnn.close()
